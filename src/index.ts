@@ -1,4 +1,4 @@
-import axios, { type AxiosResponse, type AxiosRequestHeaders, AxiosError } from "axios";
+import axios, { type AxiosResponse, type AxiosRequestHeaders, AxiosError, AxiosHeaders } from "axios";
 import * as zt from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { TypedEventTarget } from "typescript-event-target";
@@ -11,6 +11,7 @@ import { TypedEventTarget } from "typescript-event-target";
 export interface FirecrawlAppConfig {
   apiKey?: string | null;
   apiUrl?: string | null;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -560,6 +561,7 @@ export interface GenerateLLMsTextStatusResponse {
 export default class FirecrawlApp {
   public apiKey: string;
   public apiUrl: string;
+  private headers: Record<string, string>;
   public version: string =  "1.25.1";
   
   private isCloudService(url: string): boolean {
@@ -584,7 +586,7 @@ export default class FirecrawlApp {
    * Initializes a new instance of the FirecrawlApp class.
    * @param config - Configuration options for the FirecrawlApp instance.
    */
-  constructor({ apiKey = null, apiUrl = null }: FirecrawlAppConfig) {
+  constructor({ apiKey = null, apiUrl = null, headers = {} }: FirecrawlAppConfig) {
     const baseUrl = apiUrl || "https://api.firecrawl.dev";
     
     if (this.isCloudService(baseUrl) && typeof apiKey !== "string") {
@@ -593,9 +595,30 @@ export default class FirecrawlApp {
 
     this.apiKey = apiKey || '';
     this.apiUrl = baseUrl;
+    this.headers = headers;
     this.init();
   }
 
+/**
+   * Builds request headers combining defaults and user-defined ones.
+   * - Adds `Authorization: Bearer <apiKey>` only if `apiKey` is present.
+   * - Merges user headers (`this.headers`) with precedence.
+   */
+  buildHeaders(): AxiosHeaders {
+    const defaultHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.apiKey) {
+      defaultHeaders['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+
+    return AxiosHeaders.from({
+      ...defaultHeaders,
+      ...this.headers, // User headers override defaults
+    });
+  }
+  
   /**
    * Scrapes a URL using the Firecrawl API.
    * @param url - The URL to scrape.
@@ -606,10 +629,7 @@ export default class FirecrawlApp {
     url: string,
     params?: ScrapeParams<T, ActionsSchema>
   ): Promise<ScrapeResponse<zt.infer<T>, ActionsSchema extends Action[] ? ActionsResult : never> | ErrorResponse> {
-    const headers: AxiosRequestHeaders = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${this.apiKey}`,
-    } as AxiosRequestHeaders;
+    const headers = this.buildHeaders();
     let jsonData: any = { url, ...params, origin: `js-sdk@${this.version}` };
     if (jsonData?.extract?.schema) {
       let schema = jsonData.extract.schema;
